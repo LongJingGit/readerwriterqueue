@@ -30,144 +30,166 @@
 #include <utility>
 //#include <boost/noncopyable.hpp>
 
-namespace folly {
+namespace folly
+{
 
-/*
- * ProducerConsumerQueue is a one producer and one consumer queue
- * without locks.
- */
-template<class T>
-struct ProducerConsumerQueue {
-  typedef T value_type;
+    /*
+     * ProducerConsumerQueue is a one producer and one consumer queue
+     * without locks.
+     */
+    template <class T>
+    struct ProducerConsumerQueue
+    {
+        typedef T value_type;
 
-  // size must be >= 1.
-  explicit ProducerConsumerQueue(uint32_t size)
-    : size_(size + 1)    // +1 because one slot is always empty
-    , records_(static_cast<T*>(std::malloc(sizeof(T) * (size + 1))))
-    , readIndex_(0)
-    , writeIndex_(0)
-  {
-    assert(size >= 1);
-    if (!records_) {
-      throw std::bad_alloc();
-    }
-  }
-
-  ~ProducerConsumerQueue() {
-    // We need to destruct anything that may still exist in our queue.
-    // (No real synchronization needed at destructor time: only one
-    // thread can be doing this.)
-    if (!std::is_trivially_destructible<T>::value) {
-      int read = readIndex_;
-      int end = writeIndex_;
-      while (read != end) {
-        records_[read].~T();
-        if (++read == size_) {
-          read = 0;
+        // size must be >= 1.
+        explicit ProducerConsumerQueue(uint32_t size)
+            : size_(size + 1) // +1 because one slot is always empty
+              ,
+              records_(static_cast<T *>(std::malloc(sizeof(T) * (size + 1)))), readIndex_(0), writeIndex_(0)
+        {
+            assert(size >= 1);
+            if (!records_)
+            {
+                throw std::bad_alloc();
+            }
         }
-      }
-    }
 
-    std::free(records_);
-  }
+        ~ProducerConsumerQueue()
+        {
+            // We need to destruct anything that may still exist in our queue.
+            // (No real synchronization needed at destructor time: only one
+            // thread can be doing this.)
+            if (!std::is_trivially_destructible<T>::value)
+            {
+                int read = readIndex_;
+                int end = writeIndex_;
+                while (read != end)
+                {
+                    records_[read].~T();
+                    if (++read == size_)
+                    {
+                        read = 0;
+                    }
+                }
+            }
 
-  template<class ...Args>
-  bool enqueue(Args&&... recordArgs) {
-    auto const currentWrite = writeIndex_.load(std::memory_order_relaxed);
-    auto nextRecord = currentWrite + 1;
-    if (nextRecord == size_) {
-      nextRecord = 0;
-    }
-    if (nextRecord != readIndex_.load(std::memory_order_acquire)) {
-      new (&records_[currentWrite]) T(std::forward<Args>(recordArgs)...);
-      writeIndex_.store(nextRecord, std::memory_order_release);
-      return true;
-    }
+            std::free(records_);
+        }
 
-    // queue is full
-    return false;
-  }
+        template <class... Args>
+        bool enqueue(Args &&...recordArgs)
+        {
+            auto const currentWrite = writeIndex_.load(std::memory_order_relaxed);
+            auto nextRecord = currentWrite + 1;
+            if (nextRecord == size_)
+            {
+                nextRecord = 0;
+            }
+            if (nextRecord != readIndex_.load(std::memory_order_acquire))
+            {
+                new (&records_[currentWrite]) T(std::forward<Args>(recordArgs)...);
+                writeIndex_.store(nextRecord, std::memory_order_release);
+                return true;
+            }
 
-  // move (or copy) the value at the front of the queue to given variable
-  bool try_dequeue(T& record) {
-    auto const currentRead = readIndex_.load(std::memory_order_relaxed);
-    if (currentRead == writeIndex_.load(std::memory_order_acquire)) {
-      // queue is empty
-      return false;
-    }
+            // queue is full
+            return false;
+        }
 
-    auto nextRecord = currentRead + 1;
-    if (nextRecord == size_) {
-      nextRecord = 0;
-    }
-    record = std::move(records_[currentRead]);
-    records_[currentRead].~T();
-    readIndex_.store(nextRecord, std::memory_order_release);
-    return true;
-  }
+        // move (or copy) the value at the front of the queue to given variable
+        bool try_dequeue(T &record)
+        {
+            auto const currentRead = readIndex_.load(std::memory_order_relaxed);
+            if (currentRead == writeIndex_.load(std::memory_order_acquire))
+            {
+                // queue is empty
+                return false;
+            }
 
-  // pointer to the value at the front of the queue (for use in-place) or
-  // nullptr if empty.
-  T* frontPtr() {
-    auto const currentRead = readIndex_.load(std::memory_order_relaxed);
-    if (currentRead == writeIndex_.load(std::memory_order_acquire)) {
-      // queue is empty
-      return nullptr;
-    }
-    return &records_[currentRead];
-  }
+            auto nextRecord = currentRead + 1;
+            if (nextRecord == size_)
+            {
+                nextRecord = 0;
+            }
+            record = std::move(records_[currentRead]);
+            records_[currentRead].~T();
+            readIndex_.store(nextRecord, std::memory_order_release);
+            return true;
+        }
 
-  // queue must not be empty
-  void popFront() {
-    auto const currentRead = readIndex_.load(std::memory_order_relaxed);
-    assert(currentRead != writeIndex_.load(std::memory_order_acquire));
+        // pointer to the value at the front of the queue (for use in-place) or
+        // nullptr if empty.
+        T *frontPtr()
+        {
+            auto const currentRead = readIndex_.load(std::memory_order_relaxed);
+            if (currentRead == writeIndex_.load(std::memory_order_acquire))
+            {
+                // queue is empty
+                return nullptr;
+            }
+            return &records_[currentRead];
+        }
 
-    auto nextRecord = currentRead + 1;
-    if (nextRecord == size_) {
-      nextRecord = 0;
-    }
-    records_[currentRead].~T();
-    readIndex_.store(nextRecord, std::memory_order_release);
-  }
+        // queue must not be empty
+        void popFront()
+        {
+            auto const currentRead = readIndex_.load(std::memory_order_relaxed);
+            assert(currentRead != writeIndex_.load(std::memory_order_acquire));
 
-  bool isEmpty() const {
-   return readIndex_.load(std::memory_order_consume) ==
-         writeIndex_.load(std::memory_order_consume);
-  }
+            auto nextRecord = currentRead + 1;
+            if (nextRecord == size_)
+            {
+                nextRecord = 0;
+            }
+            records_[currentRead].~T();
+            readIndex_.store(nextRecord, std::memory_order_release);
+        }
 
-  bool isFull() const {
-    auto nextRecord = writeIndex_.load(std::memory_order_consume) + 1;
-    if (nextRecord == size_) {
-      nextRecord = 0;
-    }
-    if (nextRecord != readIndex_.load(std::memory_order_consume)) {
-      return false;
-    }
-    // queue is full
-    return true;
-  }
+        bool isEmpty() const
+        {
+            return readIndex_.load(std::memory_order_consume) ==
+                   writeIndex_.load(std::memory_order_consume);
+        }
 
-  // * If called by consumer, then true size may be more (because producer may
-  //   be adding items concurrently).
-  // * If called by producer, then true size may be less (because consumer may
-  //   be removing items concurrently).
-  // * It is undefined to call this from any other thread.
-  size_t sizeGuess() const {
-    int ret = writeIndex_.load(std::memory_order_consume) -
-              readIndex_.load(std::memory_order_consume);
-    if (ret < 0) {
-      ret += size_;
-    }
-    return ret;
-  }
+        bool isFull() const
+        {
+            auto nextRecord = writeIndex_.load(std::memory_order_consume) + 1;
+            if (nextRecord == size_)
+            {
+                nextRecord = 0;
+            }
+            if (nextRecord != readIndex_.load(std::memory_order_consume))
+            {
+                return false;
+            }
+            // queue is full
+            return true;
+        }
 
-private:
-  const uint32_t size_;
-  T* const records_;
+        // * If called by consumer, then true size may be more (because producer may
+        //   be adding items concurrently).
+        // * If called by producer, then true size may be less (because consumer may
+        //   be removing items concurrently).
+        // * It is undefined to call this from any other thread.
+        size_t sizeGuess() const
+        {
+            int ret = writeIndex_.load(std::memory_order_consume) -
+                      readIndex_.load(std::memory_order_consume);
+            if (ret < 0)
+            {
+                ret += size_;
+            }
+            return ret;
+        }
 
-  std::atomic<int> readIndex_;
-  std::atomic<int> writeIndex_;
-};
+    private:
+        const uint32_t size_;
+        T *const records_;
+
+        std::atomic<int> readIndex_;  // 队头出队元素的位置
+        std::atomic<int> writeIndex_; // 队尾入队元素的位置
+    };
 
 }
 
