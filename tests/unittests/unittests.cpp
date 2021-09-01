@@ -114,24 +114,24 @@ class ReaderWriterQueueTests : public TestClass<ReaderWriterQueueTests>
 public:
     ReaderWriterQueueTests()
     {
-        // REGISTER_TEST(create_empty_queue);
-        //         REGISTER_TEST(enqueue_one);
-        //         REGISTER_TEST(enqueue_many);
-        //         REGISTER_TEST(nonempty_destroy);
-        //         REGISTER_TEST(try_enqueue);
-        //         REGISTER_TEST(try_dequeue);
-        //         REGISTER_TEST(peek);
-        //         REGISTER_TEST(pop);
-        //         REGISTER_TEST(size_approx);
-        //         REGISTER_TEST(max_capacity);
-        //         REGISTER_TEST(threaded);
-        //         REGISTER_TEST(blocking);
-        //         REGISTER_TEST(vector);
-        // #if MOODYCAMEL_HAS_EMPLACE
-        //         REGISTER_TEST(emplace);
-        //         REGISTER_TEST(try_enqueue_fail_workaround);
-        //         REGISTER_TEST(try_emplace_fail);
-        // #endif
+        REGISTER_TEST(create_empty_queue);
+        REGISTER_TEST(enqueue_one);
+        REGISTER_TEST(enqueue_many);
+        REGISTER_TEST(nonempty_destroy);
+        REGISTER_TEST(try_enqueue);
+        REGISTER_TEST(try_dequeue);
+        REGISTER_TEST(peek);
+        REGISTER_TEST(pop);
+        REGISTER_TEST(size_approx);
+        REGISTER_TEST(max_capacity);
+        REGISTER_TEST(threaded);
+        REGISTER_TEST(blocking);
+        REGISTER_TEST(vector);
+#if MOODYCAMEL_HAS_EMPLACE
+        REGISTER_TEST(emplace);
+        REGISTER_TEST(try_enqueue_fail_workaround);
+        REGISTER_TEST(try_emplace_fail);
+#endif
         REGISTER_TEST(blocking_circular_buffer);
     }
 
