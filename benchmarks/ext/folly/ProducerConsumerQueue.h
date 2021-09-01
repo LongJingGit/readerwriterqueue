@@ -45,6 +45,7 @@ namespace folly
         // size must be >= 1.
         explicit ProducerConsumerQueue(uint32_t size)
             : size_(size + 1) // +1 because one slot is always empty
+                              // +1 是为了即使只有生产者没有消费者的情况下，也能够容纳 size 的元素，并且有一个 slot为空
               ,
               records_(static_cast<T *>(std::malloc(sizeof(T) * (size + 1)))), readIndex_(0), writeIndex_(0)
         {
@@ -184,8 +185,17 @@ namespace folly
         }
 
     private:
-        const uint32_t size_;
-        T *const records_;
+        const uint32_t size_; // 申请的reocords_ 的大小
+
+        /**
+         * 普通数组通过下标的控制，变成了基于循环数组实现的循环队列
+         * 当 writeIndex_ + 1 == size_ 时，说明 writeIndex_ 到了数组的最后一个位置，需要从数组的第一个元素位置开始循环写入，所以 writeIndex_ = 0;
+         * 同理，当 readIndex_ + 1 == size_ 时，readIndex_ = 0
+         *
+         * readIndex_ == writeIndex_ 时，队列空
+         * writeIndex_ + 1 == readIndex_ 时，队列满
+         **/
+        T *const records_; // T 的数组
 
         std::atomic<int> readIndex_;  // 队头出队元素的位置
         std::atomic<int> writeIndex_; // 队尾入队元素的位置
