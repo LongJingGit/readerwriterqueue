@@ -81,15 +81,33 @@ namespace folly
         template <class... Args>
         bool enqueue(Args &&...recordArgs)
         {
+            /**
+             * 为什么读取 writeIndex_ 只需要保证原子操作，不需要禁止指令重排？（即为什么这里没有使用其他的内存序？）
+             *
+             * 因为这里是 SPSC，只有一个生产者。只有生产者才会更新(写入) writeIndex_ 变量。
+             * 所以当生产者读取 writeIndex_ 变量的时候，不会有其他线程更新该变量，所以不需要使用其他的内存序。
+             */
             auto const currentWrite = writeIndex_.load(std::memory_order_relaxed);
             auto nextRecord = currentWrite + 1;
             if (nextRecord == size_)
             {
                 nextRecord = 0;
             }
+
+            /**
+             * 入队操作读取 readIndex_ 使用了 acquire 内存序的原因：
+             * readIndex_ 是由消费者线程更新的。当生产者线程在进行入队操作时，有可能有消费者线程在进行出队操作，
+             * 所以必须保证 release 之前关于内存的写入操作对 acquire 之后对内存的读取操作可见。
+             *
+             * acquire 内存序必须和 load 操作搭配使用
+             */
             if (nextRecord != readIndex_.load(std::memory_order_acquire))
             {
                 new (&records_[currentWrite]) T(std::forward<Args>(recordArgs)...);
+                // 对于同一个原子变量， release 之前的写入，一定对 acquire 之后的读取操作可见
+                /**
+                 * 写入 writeIndex_ 变量更新时需要和消费者线程读取该变量使用内存序进行同步
+                 */
                 writeIndex_.store(nextRecord, std::memory_order_release);
                 return true;
             }
@@ -101,6 +119,9 @@ namespace folly
         // move (or copy) the value at the front of the queue to given variable
         bool try_dequeue(T &record)
         {
+            /**
+             * 这里对 readIndex_ 的读取操作不使用其他内存序的原因和入队操作时读取 writeIndex_ 时不使用其他内存序的原因相同。
+             */
             auto const currentRead = readIndex_.load(std::memory_order_relaxed);
             if (currentRead == writeIndex_.load(std::memory_order_acquire))
             {
