@@ -341,13 +341,26 @@ namespace moodycamel
 
             // 先读取 frontBlock ，出队元素要从 frontBlock 中出队
             Block *frontBlock_ = frontBlock.load();
-            // 疑问：为什么获取每个 block 的 tail 和 front 都是用下面这种方式？
-            // 因为是出队，所以 localFront 可能需要更新，所以不能用缓存的
+            /**
+             * 注意：这是一个 SPSC 队列，同时只会有一个生产者线程在入队，并且只会有一个消费者线程在出队。
+             *
+             * 为什么出队操作读取 block tail 时需要读取缓存的值，而读取 block front 时不读取缓存的值？
+             *
+             * 猜测：front 和 tail 这两个变量在生产者线程和消费者线程之间共享。有可能当前线程在读取该变量的同时，另一个线程正在更新该变量，
+             * 所以在每个线程里都维护了对方变量的缓存。（这里对方的意思：出队操作更新的是 front，但是需要读取 tail 来判断是否到达队列尾部，
+             * 所以消费者线程缓存了 tail）
+             */
             // 读取当前 block 的 front 和 tail
             size_t blockTail = frontBlock_->localTail;
             size_t blockFront = frontBlock_->front.load();
 
             // front block 有元素，出队 block front
+            /**
+             * if 条件判断中：第二个条件判断的含义：
+             * 当第一个条件成立，即读取到 blockFront 和 blockTail 相等，说明消费者判断该 block 为空。为什么还要进行第二个条件判断呢：
+             *
+             * 有可能读取到的 tail 缓存过期了，有生产者线程入队了新的元素，并且更新了 tail，所以需要读取 tail 的实时值，判断是否有元素是否可以出队。
+             */
             if (blockFront != blockTail || blockFront != (frontBlock_->localTail = frontBlock_->tail.load()))
             {
                 fence(memory_order_acquire);
@@ -615,9 +628,6 @@ namespace moodycamel
 
             // 获取环形链表的最后一个 block
             Block *tailBlock_ = tailBlock.load();
-            // 疑问：获取 blockFront 和 blockTail 为什么不用相同的方式，比如 tailBlock_->Front.load();
-            // ans: 作者的解释是为了避免假共享，所以将竞争激烈的变量放在了缓存里？？
-            // ans: 从 tail 入队的，为了防止多个线程同时进行进行入队操作，即对 tail 进行更新，所以必须原子性读取 tail 的值，不可以用缓存的值（出队操作同理）
             // 读取 tail block 的 front 和 tail
             size_t blockFront = tailBlock_->localFront;
             // tail 是入队的位置
@@ -626,8 +636,15 @@ namespace moodycamel
             // nextBlockTail： block tail 的下一个位置的元素
             // 通过 & mask 的操作，可以实现数组的循环（详细可参考 readerwritercircularbuffer.h 中的解析）
             size_t nextBlockTail = (blockTail + 1) & tailBlock_->sizeMask;
-            // 如果当前 block 已满，则 tail 的下一个位置的元素和 front 元素相同（环状）。如果不相同则可以证明该 block 未满
-            // 在分配内存的时候，特意多分配了一个元素的内存空间。所以如果出现 front == tail，则说明队列是空的，不是满的
+            /**
+             * 判断队列是否已满：
+             * 1. 在分配内存的时候，特意多分配了一个元素的内存空间。所以如果出现 front == tail，则说明队列是空的，不是满的。
+             * 所以判断队列已满的方式是：判断 tail + 1 是否等于 front
+             *
+             * if 条件判断的第二个条件成立的场景：
+             * 当 tail + 1 == front 时，说明此时队列已满。但是用来判断队列已满的 front 是缓存值，有可能已经有消费者线程进行了出队操作，
+             * 所以需要重新读取 front 的实时值，判断队列是否真的已满。
+             */
             if (nextBlockTail != blockFront || nextBlockTail != (tailBlock_->localFront = tailBlock_->front.load()))
             {
                 // 如果 tail block 里面有空间，则将元素添加到 tail block
@@ -793,7 +810,7 @@ namespace moodycamel
         struct Block
         {
             // Avoid false-sharing by putting highly contended variables on their own cache lines
-            // 通过将激烈竞争的变量放在它们自己的缓存里来避免假共享？？？
+            // 通过将激烈竞争的变量放在它们自己的缓存里来避免错误共享？？？
             // front 和 tail 表示 block 中的 slot 的偏移（下标）
             weak_atomic<size_t> front; // (Atomic) Elements are read from here
             size_t localTail;          // An uncontended shadow copy of tail, owned by the consumer

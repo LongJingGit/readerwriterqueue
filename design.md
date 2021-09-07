@@ -110,3 +110,17 @@ else
 ```
 
 <font size=3><font color=red>***Talk is cheap, show me the code!***</font></font>
+
+## 内存屏障 std::atomic_thread_fence
+
+std::atomic_thread_fence(std::memory_order_acquire);
+
+std::atomic_thread_fence(std::memory_order_release);
+
+### release fence
+
+阻止 fence 之前的内存操作重排到 fence 后的任意 store 之后，即阻止 load-store 和 store-store 重排。
+
+### acquire fence
+
+阻止 fence 之后的内存操作重排到 fence 前的任意 load 之前，即阻止load-load 和 load-store 重排。
